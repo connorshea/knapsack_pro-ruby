@@ -6,6 +6,9 @@ module KnapsackPro
       TEST_DIR_PATTERN = 'test/**{,/*/**}/*_test.rb'
       @@parent_of_test_dir = nil
 
+      @parent_of_test_dir_regexp = nil
+      @parent_of_test_dir_regexp_source = nil
+
       def self.test_path(obj)
         full_test_path = nil
         found_valid_test_file_path = false
@@ -30,10 +33,21 @@ module KnapsackPro
           KnapsackPro.logger.warn("See test file for #{obj.inspect}")
         end
 
-        parent_of_test_dir_regexp = Regexp.new("^#{@@parent_of_test_dir}")
         test_path = full_test_path.gsub(parent_of_test_dir_regexp, '.')
         # test_path will look like ./test/dir/unit_test.rb
         test_path
+      end
+
+      # Called for every test suite, so avoid recompiling the same regexp.
+      # The memo is keyed on the parent dir it was built from, so it
+      # self-invalidates whenever `@@parent_of_test_dir` changes.
+      def self.parent_of_test_dir_regexp
+        if @parent_of_test_dir_regexp.nil? || @parent_of_test_dir_regexp_source != @@parent_of_test_dir
+          @parent_of_test_dir_regexp_source = @@parent_of_test_dir
+          @parent_of_test_dir_regexp = Regexp.new("^#{@@parent_of_test_dir}")
+        end
+
+        @parent_of_test_dir_regexp
       end
 
       # Overrides the method from unit-test gem

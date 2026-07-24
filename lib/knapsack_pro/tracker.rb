@@ -137,21 +137,21 @@ module KnapsackPro
     end
 
     def update_test_file_time(execution_time)
-      @test_files_with_time[current_test_path] ||= {
-        time_execution: 0,
-        measured_time: false,
-      }
+      # Called after every test, so resolve the cleaned path only once.
+      test_path = current_test_path
+      hash = @test_files_with_time[test_path]
 
-      hash = @test_files_with_time[current_test_path]
-
-      if hash[:measured_time]
+      if hash.nil?
+        @test_files_with_time[test_path] = {
+          time_execution: execution_time,
+          measured_time: true,
+        }
+      elsif hash[:measured_time]
         hash[:time_execution] += execution_time
       else
         hash[:time_execution] = execution_time
         hash[:measured_time] = true
       end
-
-      @test_files_with_time[current_test_path] = hash
     end
 
     def now_without_mock_time

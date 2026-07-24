@@ -6,20 +6,20 @@ module KnapsackPro
       TEST_DIR_PATTERN = 'test/**{,/*/**}/*_test.rb'
       @@parent_of_test_dir = nil
 
+      @parent_of_test_dir_regexp = nil
+      @parent_of_test_dir_regexp_source = nil
+      @const_source_locations = {}
+
       def self.test_path(obj)
-        path, _line =
-          begin
-            Object.const_source_location(obj.class.to_s)
-          rescue NameError # Dynamically defined class (Minitest::Spec `describe "more words"`)
-            nil
-          end
+        klass = obj.class
+        path = const_source_location_for(klass)
 
         if path.nil? # Dynamically defined class (Minitest::Spec `describe "oneword"`)
-          test_method_name = obj.class.runnable_methods.first
+          test_method_name = klass.runnable_methods.first
           path, _line = obj.method(test_method_name).source_location
         end
 
-        path.gsub(Regexp.new("^#{@@parent_of_test_dir}"), '.')
+        path.gsub(parent_of_test_dir_regexp, '.')
       end
 
       module BindTimeTrackerMinitestPlugin
@@ -52,6 +52,32 @@ module KnapsackPro
       def set_test_helper_path(file_path)
         test_dir_path = File.dirname(file_path)
         @@parent_of_test_dir = File.expand_path('../', test_dir_path)
+      end
+
+      # `test_path` runs for every test, so do not recompile the regexp or
+      # look up the source location of the same test class over and over.
+      # The memo is keyed on the parent dir it was built from, so it
+      # self-invalidates whenever `@@parent_of_test_dir` changes.
+      def self.parent_of_test_dir_regexp
+        if @parent_of_test_dir_regexp.nil? || @parent_of_test_dir_regexp_source != @@parent_of_test_dir
+          @parent_of_test_dir_regexp_source = @@parent_of_test_dir
+          @parent_of_test_dir_regexp = Regexp.new("^#{@@parent_of_test_dir}")
+        end
+
+        @parent_of_test_dir_regexp
+      end
+
+      def self.const_source_location_for(klass)
+        return @const_source_locations[klass] if @const_source_locations.key?(klass)
+
+        path, _line =
+          begin
+            Object.const_source_location(klass.to_s)
+          rescue NameError # Dynamically defined class (Minitest::Spec `describe "more words"`)
+            nil
+          end
+
+        @const_source_locations[klass] = path
       end
 
       module BindQueueModeMinitestPlugin

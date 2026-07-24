@@ -2,6 +2,8 @@
 
 ### Unreleased
 
+* (patch) Reduce the overhead the gem adds to every test: fewer object allocations and less work per test example in the RSpec time tracker, the RSpec/Minitest/Test::Unit adapters, and `KnapsackPro::Tracker`.
+
 ### 10.0.1
 
 * Add support for [File Paths Encryption](https://docs.knapsackpro.com/ruby/encryption/) to [Retry only Failures](https://docs.knapsackpro.com/ruby/retry-only-failures/).
