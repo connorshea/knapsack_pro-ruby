@@ -7,6 +7,11 @@ require_relative '../utils'
 module KnapsackPro
   module Formatters
     class TimeTracker
+      # The subset of an RSpec example needed by `#current_batch_failed_paths`.
+      # Keeping only these values avoids recomputing the file path for every
+      # example once per batch, and avoids holding on to the example objects.
+      RecordedExample = Struct.new(:file_path, :id, :status)
+
       ::RSpec::Core::Formatters.register self,
         :example_group_started,
         :example_started,
@@ -26,15 +31,16 @@ module KnapsackPro
         @batched_scheduled_paths = []
         @split_by_test_example_file_paths = Set.new
         @current_batch_examples = []
+        @group_id_paths = {}
       end
 
       def current_batch_failed_paths
         examples_by_file_path = @current_batch_examples
-          .group_by { |example| file_path_for(example) }
+          .group_by(&:file_path)
 
         paths =
           examples_by_file_path.flat_map do |file_path, examples|
-            failed_id_paths = examples.filter { |example| example.execution_result.status.to_s == "failed" }.map(&:id)
+            failed_id_paths = examples.filter { |example| example.status == :failed }.map(&:id)
             next [] if failed_id_paths.none?
             next file_path if KnapsackPro::Config::Env.test_files_encrypted?
             # Other nodes may have run some examples from this file, it's not safe to compact.
@@ -83,6 +89,9 @@ module KnapsackPro
         @time_all_by_group_id_path = Hash.new(0)
         @paths = merge(@paths, @group)
         @group = {}
+        # The groups of a finished test file are never asked for their id path
+        # again, so keep the cache scoped to a single test file.
+        @group_id_paths.clear
       end
 
       def queue
@@ -128,28 +137,49 @@ module KnapsackPro
       end
 
       def add_hooks_time(group, time_all_by_group_id_path)
-        group.each do |_, example|
+        return if time_all_by_group_id_path.empty?
+
+        # `group_id_path` without its trailing `]` is compared against every
+        # example of the group, so build it once per group instead of per pair.
+        hooks_time = time_all_by_group_id_path.map do |group_id_path, time|
+          [group_id_path, group_id_path[0..-2], time]
+        end
+
+        group.each_value do |example|
           next if example[:time_execution] == 0.0
 
-          example[:time_execution] += time_all_by_group_id_path.reduce(0.0) do |sum, (group_id_path, time)|
+          path = example[:path]
+          sum = 0.0
+          hooks_time.each do |group_id_path, group_id_path_prefix, time|
             # :path is a file path (a_spec.rb), sum any before/after(:all) in the file
-            next sum + time if group_id_path.start_with?(example[:path])
             # :path is an id path (a_spec.rb[1:1]), sum any before/after(:all) above it
-            next sum + time if example[:path].start_with?(group_id_path[0..-2])
-            sum
+            if group_id_path.start_with?(path) || path.start_with?(group_id_path_prefix)
+              sum += time
+            end
           end
+
+          example[:time_execution] += sum
         end
       end
 
       def record_example(accumulator, example, started_at)
-        path = path_for(example)
-        return if path.nil?
+        file_path = file_path_for(example)
+        return if file_path == ""
 
-        @current_batch_examples << example
+        status = example.execution_result.status
+        path =
+          if rspec_split_by_test_example?(file_path)
+            KnapsackPro::TestFileCleaner.clean(example.id)
+          else
+            file_path
+          end
 
-        time_execution = time_execution_for(example, started_at)
-        if accumulator.key?(path)
-          accumulator[path][:time_execution] += time_execution
+        @current_batch_examples << RecordedExample.new(file_path, example.id, status)
+
+        time_execution = status == :pending ? 0.0 : (now - started_at).to_f
+        recorded = accumulator[path]
+        if recorded
+          recorded[:time_execution] += time_execution
         else
           accumulator[path] = { path: path, time_execution: time_execution }
         end
@@ -158,19 +188,10 @@ module KnapsackPro
       def record_time_all(group, time_all_by_group_id_path, time_all)
         return unless group # above top level group
 
-        group_id_path = KnapsackPro::TestFileCleaner.clean(group.id)
+        # `RSpec::Core::ExampleGroup.id` is not memoized and this runs for every
+        # example, so cache the cleaned id path per group for the current batch.
+        group_id_path = @group_id_paths[group] ||= KnapsackPro::TestFileCleaner.clean(group.id)
         time_all_by_group_id_path[group_id_path] += now - time_all
-      end
-
-      def path_for(example)
-        file_path = file_path_for(example)
-        return nil if file_path == ""
-
-        if rspec_split_by_test_example?(file_path)
-          KnapsackPro::TestFileCleaner.clean(example.id)
-        else
-          file_path
-        end
       end
 
       def rspec_split_by_test_example?(file_path)
@@ -179,14 +200,6 @@ module KnapsackPro
 
       def file_path_for(example)
         KnapsackPro::TestFileCleaner.clean(KnapsackPro::Adapters::RSpecAdapter.file_path_for(example))
-      end
-
-      def time_execution_for(example, started_at)
-        if example.execution_result.status.to_s == "pending"
-          0.0
-        else
-          (now - started_at).to_f
-        end
       end
 
       def merge(h1, h2)

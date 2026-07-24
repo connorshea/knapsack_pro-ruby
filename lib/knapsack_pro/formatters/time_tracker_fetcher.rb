@@ -3,11 +3,14 @@
 module KnapsackPro
   module Formatters
     class TimeTrackerFetcher
+      FORMATTER_NAME = "KnapsackPro::Formatters::TimeTracker"
+
       def self.call
         ::RSpec
           .configuration
           .formatters
-          .find { |f| f.class.to_s == "KnapsackPro::Formatters::TimeTracker" }
+          # `Class#name` is cached by Ruby, unlike `Class#to_s`.
+          .find { |f| f.class.name == FORMATTER_NAME }
       end
 
       def self.unexecuted_test_paths
