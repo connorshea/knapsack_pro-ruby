@@ -5,6 +5,7 @@ module KnapsackPro
     class MinitestAdapter < BaseAdapter
       TEST_DIR_PATTERN = 'test/**{,/*/**}/*_test.rb'
       @@parent_of_test_dir = nil
+      @@parent_of_test_dir_regexp = nil
 
       def self.test_path(obj)
         path, _line =
@@ -19,7 +20,9 @@ module KnapsackPro
           path, _line = obj.method(test_method_name).source_location
         end
 
-        path.gsub(Regexp.new("^#{@@parent_of_test_dir}"), '.')
+        return path if @@parent_of_test_dir_regexp.nil?
+
+        path.sub(@@parent_of_test_dir_regexp, '.')
       end
 
       module BindTimeTrackerMinitestPlugin
@@ -52,6 +55,8 @@ module KnapsackPro
       def set_test_helper_path(file_path)
         test_dir_path = File.dirname(file_path)
         @@parent_of_test_dir = File.expand_path('../', test_dir_path)
+        @@parent_of_test_dir_regexp = Regexp.new("\\A#{Regexp.escape(@@parent_of_test_dir)}")
+        @@parent_of_test_dir
       end
 
       module BindQueueModeMinitestPlugin

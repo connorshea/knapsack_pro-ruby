@@ -18,8 +18,8 @@ describe KnapsackPro::Adapters::MinitestAdapter do
 
     before do
       parent_of_test_dir = File.expand_path('../../../', File.dirname(__FILE__))
-      parent_of_test_dir_regexp = Regexp.new("^#{parent_of_test_dir}")
-      described_class.class_variable_set(:@@parent_of_test_dir, parent_of_test_dir_regexp)
+      described_class.class_variable_set(:@@parent_of_test_dir, parent_of_test_dir)
+      described_class.class_variable_set(:@@parent_of_test_dir_regexp, Regexp.new("\\A#{Regexp.escape(parent_of_test_dir)}"))
     end
 
     context 'when regular test' do
@@ -180,10 +180,24 @@ describe KnapsackPro::Adapters::MinitestAdapter do
 
     subject { adapter.set_test_helper_path(test_helper_path) }
 
-    after do
+    it do
+      should eql '/code/project'
+
       expect(described_class.class_variable_get(:@@parent_of_test_dir)).to eq '/code/project'
+      expect(described_class.class_variable_get(:@@parent_of_test_dir_regexp)).to eq(/\A\/code\/project/)
     end
 
-    it { should eql '/code/project' }
+    context 'when the project path contains regexp special characters' do
+      let(:test_helper_path) { '/code/project (1)/test/test_helper.rb' }
+
+      it do
+        should eql '/code/project (1)'
+
+        expect(described_class.class_variable_get(:@@parent_of_test_dir)).to eq '/code/project (1)'
+        expect(
+          described_class.class_variable_get(:@@parent_of_test_dir_regexp)
+        ).to eq(/\A\/code\/project\ \(1\)/)
+      end
+    end
   end
 end
