@@ -6,23 +6,33 @@ module KnapsackPro
       TEST_DIR_PATTERN = 'test/**{,/*/**}/*_test.rb'
       @@parent_of_test_dir = nil
       @@parent_of_test_dir_regexp = nil
+      # The test path depends only on the test class, so it is computed once
+      # per class instead of once per test method.
+      @@test_path_cache = {}
 
       def self.test_path(obj)
+        test_class = obj.class
+        cached_test_path = @@test_path_cache[test_class]
+        return cached_test_path if cached_test_path
+
         path, _line =
           begin
-            Object.const_source_location(obj.class.to_s)
+            Object.const_source_location(test_class.to_s)
           rescue NameError # Dynamically defined class (Minitest::Spec `describe "more words"`)
             nil
           end
 
         if path.nil? # Dynamically defined class (Minitest::Spec `describe "oneword"`)
-          test_method_name = obj.class.runnable_methods.first
+          test_method_name = test_class.runnable_methods.first
           path, _line = obj.method(test_method_name).source_location
         end
 
-        return path if @@parent_of_test_dir_regexp.nil?
-
-        path.sub(@@parent_of_test_dir_regexp, '.')
+        @@test_path_cache[test_class] =
+          if @@parent_of_test_dir_regexp.nil?
+            path
+          else
+            path.sub(@@parent_of_test_dir_regexp, '.')
+          end
       end
 
       module BindTimeTrackerMinitestPlugin
@@ -56,6 +66,7 @@ module KnapsackPro
         test_dir_path = File.dirname(file_path)
         @@parent_of_test_dir = File.expand_path('../', test_dir_path)
         @@parent_of_test_dir_regexp = Regexp.new("\\A#{Regexp.escape(@@parent_of_test_dir)}")
+        @@test_path_cache.clear
         @@parent_of_test_dir
       end
 

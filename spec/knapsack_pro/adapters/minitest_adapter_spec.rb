@@ -20,6 +20,7 @@ describe KnapsackPro::Adapters::MinitestAdapter do
       parent_of_test_dir = File.expand_path('../../../', File.dirname(__FILE__))
       described_class.class_variable_set(:@@parent_of_test_dir, parent_of_test_dir)
       described_class.class_variable_set(:@@parent_of_test_dir_regexp, Regexp.new("\\A#{Regexp.escape(parent_of_test_dir)}"))
+      described_class.class_variable_get(:@@test_path_cache).clear
     end
 
     context 'when regular test' do
@@ -54,6 +55,20 @@ describe KnapsackPro::Adapters::MinitestAdapter do
       let(:obj) { FakeSharedExamplesUserTest.new }
 
       it { should eq './spec/knapsack_pro/adapters/minitest_adapter_spec.rb' }
+    end
+
+    context 'when the test path was already computed for the test class' do
+      let(:obj) { FakeUserTest.new }
+
+      it 'computes the test path only once per test class' do
+        expect(Object).to receive(:const_source_location).once.and_call_original
+
+        first_obj_test_path = described_class.test_path(obj)
+        second_obj_test_path = described_class.test_path(FakeUserTest.new)
+
+        expect(first_obj_test_path).to eq './spec/knapsack_pro/adapters/minitest_adapter_spec.rb'
+        expect(second_obj_test_path).to eq first_obj_test_path
+      end
     end
   end
 
@@ -185,6 +200,14 @@ describe KnapsackPro::Adapters::MinitestAdapter do
 
       expect(described_class.class_variable_get(:@@parent_of_test_dir)).to eq '/code/project'
       expect(described_class.class_variable_get(:@@parent_of_test_dir_regexp)).to eq(/\A\/code\/project/)
+    end
+
+    it 'clears the memoized test paths because they were based on the previous test dir' do
+      described_class.class_variable_get(:@@test_path_cache)['FakeTestClass'] = './test/stale_test.rb'
+
+      subject
+
+      expect(described_class.class_variable_get(:@@test_path_cache)).to be_empty
     end
 
     context 'when the project path contains regexp special characters' do
